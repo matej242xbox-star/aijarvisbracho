@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S</title>
+<style>
+  /* ── Fonts: 100% local, no network request ── */
+  @font-face {
+    font-family: 'JarvisDisplay';
+    src: local('Courier New Bold'), local('Courier New'), local('Lucida Console');
+    font-weight: 700;
+  }
+
+  :root {
+    --arc: #00d4ff;
+    --arc-dim: #007a94;
+    --arc-glow: rgba(0,212,255,0.15);
+    --gold: #f5a623;
+    --red: #ff3c3c;
+    --green: #00ff88;
+    --bg: #020810;
+    --panel: rgba(0,18,30,0.9);
+    --border: rgba(0,212,255,0.2);
+    --text: #cde8f0;
+    --text-dim: #3d6a7a;
+    --font-mono: 'Consolas', 'Courier New', monospace;
+    --font-display: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* animated grid background */
+  body::before {
+    content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px);
+    background-size: 50px 50px;
+    animation: gridDrift 40s linear infinite;
+  }
+  @keyframes gridDrift { to { background-position: 50px 50px; } }
+
+  /* ambient glow */
+  body::after {
+    content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(ellipse 70% 50% at 50% 0%, rgba(0,212,255,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 30% 40% at 5% 90%, rgba(0,80,160,0.07) 0%, transparent 50%);
+  }
+
+  /* scanline overlay */
+  .scanlines {
+    position:fixed; inset:0; z-index:999; pointer-events:none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(0,0,0,0.06) 3px,
+      rgba(0,0,0,0.06) 4px
+    );
+  }
+
+  /* corner brackets */
+  .corner { position:fixed; width:20px; height:20px; z-index:10; pointer-events:none; }
+  .corner::before, .corner::after { content:''; position:absolute; background:rgba(0,212,255,0.5); }
+  .corner.tl { top:8px; left:8px; }
+  .corner.tl::before { top:0; left:0; width:1px; height:18px; }
+  .corner.tl::after  { top:0; left:0; width:18px; height:1px; }
+  .corner.tr { top:8px; right:8px; }
+  .corner.tr::before { top:0; right:0; width:1px; height:18px; }
+  .corner.tr::after  { top:0; right:0; width:18px; height:1px; }
+  .corner.bl { bottom:8px; left:8px; }
+  .corner.bl::before { bottom:0; left:0; width:1px; height:18px; }
+  .corner.bl::after  { bottom:0; left:0; width:18px; height:1px; }
+  .corner.br { bottom:8px; right:8px; }
+  .corner.br::before { bottom:0; right:0; width:1px; height:18px; }
+  .corner.br::after  { bottom:0; right:0; width:18px; height:1px; }
+
+  /* ── Layout ── */
+  .app { position:relative; z-index:1; display:flex; flex-direction:column; height:100vh; }
+
+  /* ── Header ── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 0 24px;
+    height: 58px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,5,14,0.8);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo { display:flex; align-items:center; gap:14px; }
+
+  /* Arc reactor SVG */
+  .arc-reactor { width:36px; height:36px; flex-shrink:0; }
+  .arc-outer { animation: spin 9s linear infinite; transform-origin:18px 18px; }
+  .arc-mid   { animation: spin 5s linear infinite reverse; transform-origin:18px 18px; }
+  .arc-pulse { animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes spin  { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }
+
+  .logo-text {
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .logo-name {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.5em;
+    color: var(--arc);
+    text-shadow: 0 0 18px rgba(0,212,255,0.55);
+  }
+  .logo-sub {
+    font-size: 0.52rem;
+    letter-spacing: 0.18em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .header-right { display:flex; align-items:center; gap:16px; }
+
+  .stat {
+    display:flex; flex-direction:column; align-items:flex-end; gap:1px;
+    font-size:0.55rem; letter-spacing:0.1em; color:var(--text-dim);
+    text-transform:uppercase;
+  }
+  .stat-val { font-size:0.68rem; color:var(--arc); }
+  .stat-val.warn { color:var(--gold); }
+  .stat-val.ok { color:var(--green); }
+  .stat-val.err { color:var(--red); }
+
+  .live-dot {
+    width:7px; height:7px; border-radius:50%;
+    background:var(--arc); box-shadow:0 0 7px var(--arc);
+    animation:pulse 2s ease-in-out infinite;
+  }
+  .live-dot.offline { background:var(--red); box-shadow:0 0 7px var(--red); }
+
+  .cfg-btn {
+    background:none; border:1px solid var(--border);
+    color:var(--text-dim); cursor:pointer; padding:5px 12px;
+    font-family:var(--font-mono); font-size:0.65rem;
+    letter-spacing:0.1em; border-radius:2px; transition:all 0.15s;
+  }
+  .cfg-btn:hover { border-color:var(--arc); color:var(--arc); background:var(--arc-glow); }
+
+  /* ── Body ── */
+  .body { flex:1; display:flex; overflow:hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width:240px; flex-shrink:0;
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column;
+    background: rgba(0,6,14,0.5);
+    overflow:hidden;
+  }
+  .sidebar-hdr {
+    padding:10px 14px;
+    font-size:0.55rem; letter-spacing:0.15em; color:var(--text-dim);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    text-transform:uppercase; flex-shrink:0;
+  }
+  .badge {
+    background:var(--arc-glow); border:1px solid var(--arc-dim);
+    color:var(--arc); padding:1px 7px; font-size:0.55rem; border-radius:2px;
+  }
+  .action-list { flex:1; overflow-y:auto; padding:6px; }
+  .action-list::-webkit-scrollbar { width:2px; }
+  .action-list::-webkit-scrollbar-thumb { background:var(--arc-dim); }
+
+  .action-btn {
+    width:100%; text-align:left; background:none;
+    border:1px solid transparent; color:var(--text-dim);
+    font-family:var(--font-mono); font-size:0.6rem;
+    padding:6px 10px; cursor:pointer; border-radius:2px;
+    transition:all 0.12s; margin-bottom:2px;
+    display:flex; align-items:flex-start; gap:7px;
+    line-height:1.45; word-break:break-all;
+  }
+  .action-btn::before { content:'▷'; color:var(--arc-dim); flex-shrink:0; margin-top:1px; }
+  .action-btn:hover {
+    background:var(--arc-glow); border-color:var(--border);
+    color:var(--arc);
+  }
+  .action-btn:hover::before { color:var(--arc); }
+
+  /* ── Chat ── */
+  .chat { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* visualizer */
+  .vizbar {
+    height:52px; flex-shrink:0;
+    display:flex; align-items:flex-end; justify-content:center; gap:2px;
+    padding:0 20px 6px;
+    border-bottom:1px solid var(--border);
+    background:rgba(0,4,10,0.4);
+    overflow:hidden;
+  }
+  .vb {
+    width:3px; border-radius:2px 2px 0 0;
+    background: linear-gradient(to top, var(--arc-dim), var(--arc));
+    opacity:0.55;
+    animation: vbounce var(--spd, 0.9s) ease-in-out infinite alternate;
+    transform-origin: bottom;
+  }
+  @keyframes vbounce { from{transform:scaleY(0.08)} to{transform:scaleY(1)} }
+
+  /* messages */
+  .msgs { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; }
+  .msgs::-webkit-scrollbar { width:2px; }
+  .msgs::-webkit-scrollbar-thumb { background:var(--arc-dim); }
+
+  .msg { display:flex; gap:10px; align-items:flex-start; animation:msgIn 0.25s ease-out; }
+  @keyframes msgIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  .msg.user { flex-direction:row-reverse; }
+
+  .av {
+    width:30px; height:30px; flex-shrink:0; border-radius:2px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.58rem; font-weight:700; letter-spacing:0.05em;
+  }
+  .msg.jarvis .av { background:rgba(0,212,255,0.08); border:1px solid var(--arc-dim); color:var(--arc); }
+  .msg.user   .av { background:rgba(245,166,35,0.08); border:1px solid rgba(245,166,35,0.3); color:var(--gold); }
+
+  .msg-body { max-width:72%; }
+  .msg-who { font-size:0.55rem; color:var(--text-dim); letter-spacing:0.1em; margin-bottom:5px; }
+  .msg.user .msg-who { text-align:right; }
+
+  .bubble {
+    padding:11px 15px; border-radius:2px;
+    font-size:0.76rem; line-height:1.65;
+  }
+  .msg.jarvis .bubble {
+    background:var(--panel); border:1px solid var(--border);
+    border-left:2px solid var(--arc); color:var(--text);
+  }
+  .msg.user .bubble {
+    background:rgba(245,166,35,0.05); border:1px solid rgba(245,166,35,0.18);
+    border-right:2px solid var(--gold); color:#e8d5aa;
+  }
+
+  .action-tag {
+    display:flex; align-items:center; gap:6px; margin-top:8px;
+    font-size:0.58rem; color:var(--text-dim); flex-wrap:wrap;
+  }
+  .tag {
+    padding:2px 8px; border-radius:2px; font-size:0.57rem;
+    border:1px solid;
+  }
+  .tag.run  { background:rgba(0,255,100,0.06);  border-color:#006633; color:var(--green); }
+  .tag.name { background:var(--arc-glow);        border-color:var(--arc-dim); color:var(--arc); }
+  .tag.fail { background:rgba(255,60,60,0.07);  border-color:#663333; color:var(--red); }
+
+  /* typing */
+  .dots { display:flex; gap:4px; padding:3px 0; }
+  .dots i {
+    display:block; width:6px; height:6px; border-radius:50%;
+    background:var(--arc); opacity:0.4;
+    animation:dotb 1.1s ease-in-out infinite;
+  }
+  .dots i:nth-child(2){animation-delay:.18s}
+  .dots i:nth-child(3){animation-delay:.36s}
+  @keyframes dotb { 0%,100%{opacity:0.25;transform:scaleY(0.6)} 50%{opacity:1;transform:scaleY(1.3)} }
+
+  /* welcome */
+  .welcome {
+    flex:1; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap:18px; padding:32px; text-align:center;
+  }
+  .wring {
+    width:90px; height:90px; position:relative;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .wring svg { position:absolute; }
+  .wring .r1 { animation:spin 10s linear infinite; width:90px; height:90px; }
+  .wring .r2 { animation:spin 16s linear infinite reverse; width:70px; height:70px; }
+  .wring .r3 { width:44px; height:44px; }
+  .welcome h2 {
+    font-family:var(--font-display);
+    font-size:1.25rem; font-weight:700; letter-spacing:0.3em;
+    color:var(--arc); text-shadow:0 0 25px rgba(0,212,255,0.45);
+  }
+  .welcome p { font-size:0.7rem; color:var(--text-dim); line-height:1.7; max-width:380px; }
+  .hints { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin-top:4px; }
+  .hint {
+    padding:5px 12px; border:1px solid var(--border); border-radius:2px;
+    font-size:0.6rem; color:var(--text-dim); cursor:pointer;
+    background:rgba(0,18,30,0.5); transition:all 0.15s;
+  }
+  .hint:hover { border-color:var(--arc); color:var(--arc); background:var(--arc-glow); }
+
+  /* ── Input ── */
+  .input-zone {
+    flex-shrink:0; padding:14px 20px;
+    border-top:1px solid var(--border);
+    background:rgba(0,4,10,0.7); backdrop-filter:blur(8px);
+  }
+  .input-row {
+    display:flex; align-items:center; gap:8px;
+    border:1px solid var(--border);
+    background:rgba(0,12,22,0.8);
+    border-radius:2px; padding:3px 3px 3px 14px;
+    transition:border-color 0.2s, box-shadow 0.2s;
+  }
+  .input-row:focus-within { border-color:var(--arc); box-shadow:0 0 16px var(--arc-glow); }
+  .pfx { color:var(--arc-dim); font-size:0.72rem; flex-shrink:0; }
+  #inp {
+    flex:1; background:none; border:none; outline:none;
+    color:var(--text); font-family:var(--font-mono); font-size:0.8rem;
+    caret-color:var(--arc);
+  }
+  #inp::placeholder { color:var(--text-dim); }
+  .send {
+    width:38px; height:38px; flex-shrink:0;
+    background:linear-gradient(135deg,rgba(0,212,255,0.12),rgba(0,80,120,0.2));
+    border:1px solid var(--arc-dim); color:var(--arc);
+    cursor:pointer; border-radius:2px; font-size:0.9rem;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s;
+  }
+  .send:hover { border-color:var(--arc); box-shadow:0 0 12px var(--arc-glow); }
+  .send:disabled { opacity:0.3; cursor:not-allowed; }
+  .input-foot {
+    display:flex; justify-content:space-between;
+    font-size:0.54rem; color:var(--text-dim); letter-spacing:0.07em;
+    margin-top:6px; padding:0 2px;
+  }
+
+  /* ── Modal ── */
+  .overlay {
+    display:none; position:fixed; inset:0; z-index:200;
+    background:rgba(0,0,0,0.8); backdrop-filter:blur(5px);
+    align-items:center; justify-content:center;
+  }
+  .overlay.open { display:flex; }
+  .modal {
+    background:#020d18; border:1px solid var(--arc-dim);
+    box-shadow:0 0 50px rgba(0,212,255,0.12);
+    padding:28px; width:420px; max-width:92vw;
+    animation:fadeUp 0.2s ease-out;
+  }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+  .modal h2 {
+    font-family:var(--font-display); font-size:0.9rem;
+    color:var(--arc); letter-spacing:0.25em;
+    padding-bottom:14px; border-bottom:1px solid var(--border); margin-bottom:20px;
+  }
+  .modal label { display:block; font-size:0.58rem; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:6px; text-transform:uppercase; }
+  .modal input {
+    width:100%; background:rgba(0,12,22,0.9); border:1px solid var(--border);
+    color:var(--text); padding:9px 12px; font-family:var(--font-mono);
+    font-size:0.78rem; outline:none; border-radius:2px; transition:border-color 0.15s;
+  }
+  .modal input:focus { border-color:var(--arc); }
+  .modal-note { font-size:0.58rem; color:var(--text-dim); margin-top:8px; line-height:1.6; }
+  .modal-btns { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; }
+  .btn-ok {
+    background:rgba(0,212,255,0.1); border:1px solid var(--arc-dim);
+    color:var(--arc); padding:8px 20px; cursor:pointer;
+    font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.1em;
+    border-radius:2px; transition:all 0.15s;
+  }
+  .btn-ok:hover { border-color:var(--arc); box-shadow:0 0 12px var(--arc-glow); }
+  .btn-no {
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    padding:8px 20px; cursor:pointer; font-family:var(--font-mono);
+    font-size:0.68rem; letter-spacing:0.1em; border-radius:2px; transition:all 0.15s;
+  }
+  .btn-no:hover { border-color:var(--text-dim); color:var(--text); }
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <svg class="arc-reactor" viewBox="0 0 36 36" fill="none">
+        <g class="arc-outer">
+          <circle cx="18" cy="18" r="16" stroke="#00d4ff" stroke-width="0.4" stroke-dasharray="3 3" opacity="0.4"/>
+          <circle cx="18" cy="18" r="16" stroke="#00d4ff" stroke-width="1" stroke-dasharray="2 50" opacity="0.9"/>
+        </g>
+        <g class="arc-mid">
+          <circle cx="18" cy="18" r="11" stroke="#00d4ff" stroke-width="0.4" stroke-dasharray="2 3" opacity="0.35"/>
+          <circle cx="18" cy="18" r="11" stroke="#00d4ff" stroke-width="1.2" stroke-dasharray="1.5 68" opacity="0.85"/>
+        </g>
+        <g class="arc-pulse">
+          <circle cx="18" cy="18" r="6" fill="rgba(0,212,255,0.1)" stroke="#00d4ff" stroke-width="0.8"/>
+          <circle cx="18" cy="18" r="3.5" fill="rgba(0,212,255,0.22)" stroke="#00d4ff" stroke-width="0.5"/>
+          <circle cx="18" cy="18" r="1.8" fill="#00d4ff"/>
+        </g>
+      </svg>
+      <div class="logo-text">
+        <div class="logo-name">J.A.R.V.I.S</div>
+        <div class="logo-sub">Just A Rather Very Intelligent System</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="stat"><span>SYSTEM</span><span class="stat-val ok" id="sysLbl">ONLINE</span></div>
+      <div class="stat"><span>ACTIONS</span><span class="stat-val" id="actLbl">—</span></div>
+      <div class="stat"><span>GEMINI</span><span class="stat-val warn" id="apiLbl">NO KEY</span></div>
+      <div class="live-dot" id="dot"></div>
+      <button class="cfg-btn" onclick="openCfg()">⚙ CONFIG</button>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sidebar-hdr">
+        <span>Actions</span>
+        <span class="badge" id="sideCount">0</span>
+      </div>
+      <div class="action-list" id="actionList"></div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="chat">
+
+      <!-- Visualizer -->
+      <div class="vizbar" id="viz"></div>
+
+      <!-- Messages -->
+      <div class="msgs" id="msgs">
+        <div class="welcome" id="welcome">
+          <div class="wring">
+            <svg class="r1" viewBox="0 0 90 90"><circle cx="45" cy="45" r="42" stroke="#00d4ff" stroke-width="0.6" fill="none" stroke-dasharray="5 4" opacity="0.35"/></svg>
+            <svg class="r2" viewBox="0 0 70 70"><circle cx="35" cy="35" r="32" stroke="#00d4ff" stroke-width="0.8" fill="none" stroke-dasharray="3 5" opacity="0.3"/></svg>
+            <svg class="r3" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="19" stroke="#00d4ff" stroke-width="1" fill="rgba(0,212,255,0.05)"/>
+              <circle cx="22" cy="22" r="11" stroke="#00d4ff" stroke-width="0.6" fill="rgba(0,212,255,0.08)"/>
+              <circle cx="22" cy="22" r="5" fill="rgba(0,212,255,0.25)" stroke="#00d4ff" stroke-width="0.8"/>
+              <circle cx="22" cy="22" r="2.5" fill="#00d4ff"/>
+            </svg>
+          </div>
+          <h2>JARVIS ONLINE</h2>
+          <p>All systems operational. Give me an order and I'll execute it immediately.</p>
+          <div class="hints">
+            <span class="hint" onclick="hint(this)">Open YouTube</span>
+            <span class="hint" onclick="hint(this)">Open Spotify</span>
+            <span class="hint" onclick="hint(this)">Open Discord</span>
+            <span class="hint" onclick="hint(this)">Mute the volume</span>
+            <span class="hint" onclick="hint(this)">Take a screenshot</span>
+            <span class="hint" onclick="hint(this)">Lock the screen</span>
+            <span class="hint" onclick="hint(this)">Open VS Code</span>
+            <span class="hint" onclick="hint(this)">Open Gmail</span>
+            <span class="hint" onclick="hint(this)">What can you do?</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div class="input-zone">
+        <div class="input-row">
+          <span class="pfx">JARVIS &gt;</span>
+          <input id="inp" type="text" placeholder="Give me an order, sir..." autocomplete="off"/>
+          <button class="send" id="sendBtn" onclick="send()">➤</button>
+        </div>
+        <div class="input-foot">
+          <span>ENTER TO SEND</span>
+          <span id="foot">AWAITING COMMAND</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Config modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2>⚙ SYSTEM CONFIGURATION</h2>
+    <label>Gemini API Key</label>
+    <input type="password" id="keyInp" placeholder="AIza..."/>
+    <p class="modal-note">
+      Get your free key at aistudio.google.com/app/apikey
+    </p>
+    <div class="modal-btns">
+      <button class="btn-no" onclick="closeCfg()">CANCEL</button>
+      <button class="btn-ok" onclick="saveCfg()">SAVE &amp; ENGAGE</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:5000';
+let history = [];
+let busy = false;
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+(async function boot() {
+  buildViz();
+  await Promise.all([loadActions(), checkCfg()]);
+})();
+
+// ── Visualizer ────────────────────────────────────────────────────────────────
+function buildViz() {
+  const v = document.getElementById('viz');
+  for (let i = 0; i < 52; i++) {
+    const b = document.createElement('div');
+    b.className = 'vb';
+    const h = 6 + Math.random() * 32;
+    const spd = (0.45 + Math.random() * 0.85).toFixed(2);
+    b.style.cssText = `height:${h}px;--spd:${spd}s;animation-delay:${(Math.random()*0.6).toFixed(2)}s`;
+    v.appendChild(b);
+  }
+}
+function vivaViz(on) {
+  document.querySelectorAll('.vb').forEach(b => {
+    b.style.animationDuration = on ? ((0.1 + Math.random()*0.3).toFixed(2)+'s') : (b.style.getPropertyValue('--spd')||'0.8s');
+    b.style.opacity = on ? '1' : '0.55';
+  });
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function loadActions() {
+  try {
+    const r = await fetch(`${API}/api/actions`);
+    const d = await r.json();
+    const acts = d.actions || [];
+    document.getElementById('actLbl').textContent = acts.length;
+    document.getElementById('sideCount').textContent = acts.length;
+    const list = document.getElementById('actionList');
+    list.innerHTML = '';
+    acts.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = 'action-btn';
+      btn.title = 'Click to run directly';
+      btn.textContent = a.replace(/_/g,' ');
+      btn.onclick = () => directRun(a);
+      list.appendChild(btn);
+    });
+  } catch {
+    setOffline();
+    addMsg('jarvis', "Can't reach the server. Make sure <strong>START_JARVIS.bat</strong> is running.", []);
+  }
+}
+
+function setOffline() {
+  const l = document.getElementById('sysLbl');
+  l.textContent = 'OFFLINE'; l.className = 'stat-val err';
+  const d = document.getElementById('dot');
+  d.style.background = 'var(--red)'; d.style.boxShadow = '0 0 7px var(--red)';
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+async function checkCfg() {
+  try {
+    const r = await fetch(`${API}/api/config`);
+    const d = await r.json();
+    const lbl = document.getElementById('apiLbl');
+    if (d.has_key) { lbl.textContent = 'ACTIVE'; lbl.className = 'stat-val ok'; }
+    else { lbl.textContent = 'NO KEY'; lbl.className = 'stat-val warn'; }
+  } catch {}
+}
+function openCfg() { document.getElementById('overlay').classList.add('open'); }
+function closeCfg() { document.getElementById('overlay').classList.remove('open'); }
+async function saveCfg() {
+  const key = document.getElementById('keyInp').value.trim();
+  if (!key) return;
+  await fetch(`${API}/api/config`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({api_key: key})
+  });
+  closeCfg();
+  const lbl = document.getElementById('apiLbl');
+  lbl.textContent = 'ACTIVE'; lbl.className = 'stat-val ok';
+  addMsg('jarvis', "API key saved. Fully operational now, sir.", []);
+}
+
+// ── Direct run from sidebar ───────────────────────────────────────────────────
+async function directRun(action) {
+  if (busy) return;
+  hideWelcome();
+  addMsg('user', `Run: ${action.replace(/_/g,' ')}`);
+  foot('EXECUTING...');
+  try {
+    const r = await fetch(`${API}/api/execute`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    });
+    const d = await r.json();
+    addMsg('jarvis', d.ok ? `Executing now.` : `Error: ${d.message}`,
+      d.ok ? [{action, executed:true}] : [{action, executed:false, error:d.message}]);
+  } catch { addMsg('jarvis', 'Execution failed. Server unreachable.', []); }
+  foot('AWAITING COMMAND');
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+async function send() {
+  if (busy) return;
+  const el = document.getElementById('inp');
+  const msg = el.value.trim(); if (!msg) return;
+  el.value = '';
+  hideWelcome();
+  addMsg('user', msg);
+  history.push({role:'user', content:msg});
+  showTyping(); setBusy(true); vivaViz(true); foot('JARVIS IS THINKING...');
+
+  try {
+    const r = await fetch(`${API}/api/chat`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:msg, history})
+    });
+    const d = await r.json();
+    removeTyping(); vivaViz(false);
+    if (d.error) {
+      addMsg('jarvis', `⚠ ${d.error}`, []);
+    } else {
+      addMsg('jarvis', d.message, d.results || []);
+      history.push({role:'model', content:d.message});
+    }
+  } catch {
+    removeTyping(); vivaViz(false);
+    addMsg('jarvis', 'Lost connection to server.', []);
+  }
+  setBusy(false); foot('AWAITING COMMAND');
+}
+
+function hint(el) { document.getElementById('inp').value = el.textContent; document.getElementById('inp').focus(); }
+function hideWelcome() { const w = document.getElementById('welcome'); if(w) w.remove(); }
+function setBusy(v) { busy=v; document.getElementById('sendBtn').disabled=v; }
+function foot(t) { document.getElementById('foot').textContent=t; }
+
+// ── Message helpers ───────────────────────────────────────────────────────────
+function addMsg(role, text, results) {
+  const box = document.getElementById('msgs');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const av = document.createElement('div'); av.className='av';
+  av.textContent = role==='jarvis' ? 'AI' : 'YOU';
+
+  const body = document.createElement('div'); body.className='msg-body';
+  const who  = document.createElement('div'); who.className='msg-who';
+  who.textContent = role==='jarvis' ? 'J.A.R.V.I.S' : 'OPERATOR';
+
+  const bubble = document.createElement('div'); bubble.className='bubble';
+  bubble.innerHTML = text;
+
+  // Show all executed actions as tags
+  if (results && results.length > 0) {
+    const tagRow = document.createElement('div'); tagRow.className='action-tag';
+    results.forEach(r => {
+      const n = document.createElement('span'); n.className='tag name';
+      n.textContent = r.action.replace(/_/g,' ');
+      tagRow.appendChild(n);
+      const s = document.createElement('span');
+      s.className = r.executed ? 'tag run' : 'tag fail';
+      s.textContent = r.executed ? '✓' : (r.error || '✗');
+      tagRow.appendChild(s);
+    });
+    bubble.appendChild(tagRow);
+  }
+
+  body.appendChild(who); body.appendChild(bubble);
+  div.appendChild(av); div.appendChild(body);
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function showTyping() {
+  const box = document.getElementById('msgs');
+  const div = document.createElement('div');
+  div.className='msg jarvis'; div.id='typing';
+  div.innerHTML=`<div class="av">AI</div><div class="msg-body"><div class="msg-who">J.A.R.V.I.S</div><div class="bubble"><div class="dots"><i></i><i></i><i></i></div></div></div>`;
+  box.appendChild(div); box.scrollTop=box.scrollHeight;
+}
+function removeTyping() { const t=document.getElementById('typing'); if(t)t.remove(); }
+
+document.getElementById('inp').addEventListener('keydown', e => {
+  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+document.getElementById('overlay').addEventListener('click', e => {
+  if (e.target===e.currentTarget) closeCfg();
+});
+</script>
+</body>
+</html>

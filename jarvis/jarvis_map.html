@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S — MAP</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --arc: #00d4ff;
+    --arc-dim: #007a94;
+    --arc-glow: rgba(0,212,255,0.15);
+    --gold: #f5a623;
+    --red: #ff3c3c;
+    --green: #00ff88;
+    --bg: #020810;
+    --panel: rgba(0,14,26,0.92);
+    --border: rgba(0,212,255,0.2);
+    --text: #cde8f0;
+    --text-dim: #3d6a7a;
+    --font: 'Consolas','Courier New',monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:var(--bg); font-family:var(--font); color:var(--text); overflow:hidden; }
+
+  /* ── Map fills everything ── */
+  #map { position:absolute; inset:0; z-index:1; }
+
+  .leaflet-container { background:#020810; }
+
+  /* Grid overlay on map */
+  #mapGrid {
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px);
+    background-size:60px 60px;
+  }
+
+  /* Scanlines */
+  #scan {
+    position:absolute; inset:0; z-index:10; pointer-events:none;
+    background: repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.07) 3px,rgba(0,0,0,0.07) 4px);
+  }
+  #scan::after {
+    content:''; position:absolute; left:0; right:0; height:100px;
+    background:linear-gradient(transparent,rgba(0,212,255,0.025),transparent);
+    animation: scanline 7s linear infinite;
+  }
+  @keyframes scanline { from{top:-100px} to{top:100vh} }
+
+  /* Corner brackets */
+  .corner { position:absolute; width:28px; height:28px; z-index:20; pointer-events:none; }
+  .corner::before,.corner::after { content:''; position:absolute; background:var(--arc); opacity:0.7; }
+  .corner.tl { top:12px; left:12px; }
+  .corner.tl::before { top:0;left:0;width:1px;height:22px; }
+  .corner.tl::after  { top:0;left:0;width:22px;height:1px; }
+  .corner.tr { top:12px; right:12px; }
+  .corner.tr::before { top:0;right:0;width:1px;height:22px; }
+  .corner.tr::after  { top:0;right:0;width:22px;height:1px; }
+  .corner.bl { bottom:12px; left:12px; }
+  .corner.bl::before { bottom:0;left:0;width:1px;height:22px; }
+  .corner.bl::after  { bottom:0;left:0;width:22px;height:1px; }
+  .corner.br { bottom:12px; right:12px; }
+  .corner.br::before { bottom:0;right:0;width:1px;height:22px; }
+  .corner.br::after  { bottom:0;right:0;width:22px;height:1px; }
+
+  /* ── Header bar ── */
+  #header {
+    position:absolute; top:0; left:0; right:0; z-index:30;
+    height:54px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 20px;
+    background:linear-gradient(to bottom, rgba(2,8,16,0.97), rgba(2,8,16,0.7));
+    border-bottom:1px solid var(--border);
+    backdrop-filter:blur(6px);
+  }
+
+  .hlogo { display:flex; align-items:center; gap:12px; }
+  .hlogo svg { width:30px; height:30px; }
+  .arc-outer-h { animation:spin 9s linear infinite; transform-origin:15px 15px; }
+  .arc-mid-h   { animation:spin 5s linear infinite reverse; transform-origin:15px 15px; }
+  .arc-pulse-h { animation:pulse 2s ease-in-out infinite; }
+  @keyframes spin  { to{transform:rotate(360deg)} }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+  .hlogo-text { display:flex; flex-direction:column; gap:1px; }
+  .hlogo-name {
+    font-size:0.85rem; font-weight:700; letter-spacing:0.45em;
+    color:var(--arc); text-shadow:0 0 16px rgba(0,212,255,0.5);
+  }
+  .hlogo-sub { font-size:0.48rem; letter-spacing:0.2em; color:var(--text-dim); text-transform:uppercase; }
+
+  /* Search bar */
+  #searchWrap {
+    display:flex; align-items:center; gap:0;
+    border:1px solid var(--border); border-radius:2px;
+    background:rgba(0,10,20,0.85); overflow:hidden;
+    transition:border-color 0.2s, box-shadow 0.2s;
+    width:340px;
+  }
+  #searchWrap:focus-within { border-color:var(--arc); box-shadow:0 0 18px var(--arc-glow); }
+  .search-pfx { padding:0 10px; font-size:0.7rem; color:var(--arc-dim); flex-shrink:0; }
+  #searchInp {
+    flex:1; background:none; border:none; outline:none;
+    color:var(--text); font-family:var(--font); font-size:0.75rem;
+    padding:8px 0; caret-color:var(--arc);
+  }
+  #searchInp::placeholder { color:var(--text-dim); }
+  #searchBtn {
+    background:rgba(0,212,255,0.1); border:none; border-left:1px solid var(--border);
+    color:var(--arc); cursor:pointer; padding:0 14px; height:100%;
+    font-family:var(--font); font-size:0.7rem; letter-spacing:0.05em;
+    transition:all 0.15s; flex-shrink:0;
+  }
+  #searchBtn:hover { background:rgba(0,212,255,0.2); }
+
+  /* Header right stats */
+  .hstats { display:flex; align-items:center; gap:14px; }
+  .hstat { display:flex; flex-direction:column; align-items:flex-end; gap:1px; font-size:0.5rem; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase; }
+  .hstat-v { font-size:0.62rem; color:var(--arc); }
+  .hstat-v.ok { color:var(--green); }
+
+  .back-btn {
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    cursor:pointer; padding:5px 12px; font-family:var(--font);
+    font-size:0.62rem; letter-spacing:0.1em; border-radius:2px;
+    transition:all 0.15s;
+  }
+  .back-btn:hover { border-color:var(--arc); color:var(--arc); background:var(--arc-glow); }
+
+  /* ── Side info panel ── */
+  #infoPanel {
+    position:absolute; top:70px; left:16px; z-index:30;
+    width:260px;
+    background:var(--panel); border:1px solid var(--border);
+    border-left:2px solid var(--arc);
+    display:flex; flex-direction:column; gap:0;
+    box-shadow:0 0 30px rgba(0,0,0,0.6), 0 0 20px rgba(0,212,255,0.06);
+    transition: opacity 0.3s;
+  }
+  #infoPanel.hidden { opacity:0; pointer-events:none; }
+
+  .panel-hdr {
+    padding:9px 14px; border-bottom:1px solid var(--border);
+    font-size:0.55rem; letter-spacing:0.18em; color:var(--text-dim);
+    text-transform:uppercase; display:flex; justify-content:space-between; align-items:center;
+  }
+  .panel-dot {
+    width:6px; height:6px; border-radius:50%;
+    background:var(--green); box-shadow:0 0 6px var(--green);
+    animation:pulse 2s ease-in-out infinite;
+  }
+
+  .info-row { padding:8px 14px; border-bottom:1px solid rgba(0,212,255,0.08); display:flex; flex-direction:column; gap:2px; }
+  .info-row:last-child { border-bottom:none; }
+  .info-lbl { font-size:0.5rem; letter-spacing:0.14em; color:var(--text-dim); text-transform:uppercase; }
+  .info-val { font-size:0.72rem; color:var(--text); line-height:1.3; }
+  .info-val.arc { color:var(--arc); }
+  .info-val.gold { color:var(--gold); }
+
+  /* Coords display */
+  #coordDisplay {
+    position:absolute; bottom:60px; left:16px; z-index:30;
+    background:rgba(2,8,16,0.88); border:1px solid var(--border);
+    padding:6px 14px; font-size:0.58rem; color:var(--text-dim);
+    letter-spacing:0.08em; border-radius:2px;
+  }
+  #coordDisplay span { color:var(--arc); }
+
+  /* ── Zoom controls (replace default leaflet) ── */
+  .leaflet-control-zoom { display:none !important; }
+
+  #zoomCtrl {
+    position:absolute; bottom:60px; right:16px; z-index:30;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .zoom-btn {
+    width:32px; height:32px; background:rgba(0,10,20,0.88);
+    border:1px solid var(--border); color:var(--arc);
+    cursor:pointer; font-size:1rem; border-radius:2px;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s; font-family:var(--font);
+  }
+  .zoom-btn:hover { border-color:var(--arc); background:var(--arc-glow); box-shadow:0 0 10px var(--arc-glow); }
+
+  /* ── Status bar ── */
+  #statusBar {
+    position:absolute; bottom:0; left:0; right:0; z-index:30;
+    height:36px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 20px;
+    background:linear-gradient(to top, rgba(2,8,16,0.97), rgba(2,8,16,0.7));
+    border-top:1px solid var(--border);
+    font-size:0.55rem; letter-spacing:0.1em; color:var(--text-dim);
+  }
+  #statusBar .left { display:flex; align-items:center; gap:16px; }
+  #statusBar .right { display:flex; align-items:center; gap:16px; }
+  #statusMsg { color:var(--arc); }
+
+  /* Scan progress bar */
+  #scanBar {
+    position:absolute; bottom:36px; left:0; right:0; z-index:29;
+    height:1px; background:rgba(0,212,255,0.08);
+  }
+  #scanBarFill {
+    height:100%; background:var(--arc); width:0%;
+    transition:width 0.3s ease; box-shadow:0 0 8px var(--arc);
+  }
+
+  /* ── Custom marker ── */
+  .jarvis-marker {
+    width:0; height:0; position:relative;
+  }
+  .jarvis-marker::before {
+    content:''; position:absolute;
+    width:16px; height:16px; border-radius:50%;
+    background:rgba(0,212,255,0.25);
+    border:1.5px solid var(--arc);
+    top:-8px; left:-8px;
+    box-shadow:0 0 12px var(--arc), 0 0 24px rgba(0,212,255,0.3);
+    animation:markerPulse 2s ease-in-out infinite;
+  }
+  @keyframes markerPulse { 0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:0.6} }
+
+  /* Ripple on marker */
+  .ripple {
+    position:absolute; border-radius:50%;
+    border:1px solid var(--arc); opacity:0;
+    animation:rippleOut 2s ease-out infinite;
+    top:50%; left:50%; transform:translate(-50%,-50%);
+  }
+  @keyframes rippleOut { 0%{width:10px;height:10px;opacity:0.7}100%{width:80px;height:80px;opacity:0} }
+
+  /* Loading overlay */
+  #loader {
+    position:absolute; inset:0; z-index:50;
+    background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;
+    transition:opacity 0.5s;
+  }
+  #loader.done { opacity:0; pointer-events:none; }
+
+  .loader-ring {
+    width:80px; height:80px; position:relative;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .loader-ring svg { position:absolute; }
+  .lr1 { animation:spin 4s linear infinite; width:80px; height:80px; }
+  .lr2 { animation:spin 7s linear infinite reverse; width:56px; height:56px; }
+  .lr3 { width:32px; height:32px; }
+
+  .loader-txt {
+    font-size:0.65rem; letter-spacing:0.2em; color:var(--text-dim); text-transform:uppercase;
+  }
+  .loader-txt b { color:var(--arc); }
+
+  .progress-bar {
+    width:200px; height:1px; background:rgba(0,212,255,0.12); border-radius:1px;
+  }
+  .progress-fill {
+    height:100%; background:var(--arc); border-radius:1px;
+    box-shadow:0 0 8px var(--arc);
+    animation:loadProgress 1.2s ease-out forwards;
+  }
+  @keyframes loadProgress { from{width:0%}to{width:100%} }
+
+  /* Leaflet popup override */
+  .leaflet-popup-content-wrapper {
+    background:rgba(2,10,20,0.95) !important;
+    border:1px solid var(--arc-dim) !important;
+    border-radius:2px !important;
+    color:var(--text) !important;
+    font-family:var(--font) !important;
+    box-shadow:0 0 20px rgba(0,212,255,0.15) !important;
+  }
+  .leaflet-popup-tip { background:rgba(2,10,20,0.95) !important; }
+  .leaflet-popup-close-button { color:var(--arc-dim) !important; }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="loader-ring">
+    <svg class="lr1" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37" stroke="#00d4ff" stroke-width="0.5" fill="none" stroke-dasharray="5 4" opacity="0.35"/><circle cx="40" cy="40" r="37" stroke="#00d4ff" stroke-width="1" stroke-dasharray="2 116" opacity="0.9"/></svg>
+    <svg class="lr2" viewBox="0 0 56 56"><circle cx="28" cy="28" r="25" stroke="#00d4ff" stroke-width="0.5" fill="none" stroke-dasharray="3 5" opacity="0.3"/><circle cx="28" cy="28" r="25" stroke="#00d4ff" stroke-width="1.2" stroke-dasharray="2 157" opacity="0.8"/></svg>
+    <svg class="lr3" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="13" stroke="#00d4ff" stroke-width="0.8" fill="rgba(0,212,255,0.05)"/>
+      <circle cx="16" cy="16" r="7" stroke="#00d4ff" stroke-width="0.5" fill="rgba(0,212,255,0.1)"/>
+      <circle cx="16" cy="16" r="3" fill="rgba(0,212,255,0.3)" stroke="#00d4ff" stroke-width="0.8"/>
+      <circle cx="16" cy="16" r="1.5" fill="#00d4ff"/>
+    </svg>
+  </div>
+  <div class="loader-txt">INITIALIZING <b>TACTICAL MAP</b></div>
+  <div class="progress-bar"><div class="progress-fill"></div></div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+<div id="mapGrid"></div>
+<div id="scan"></div>
+
+<!-- Corners -->
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+
+<!-- Header -->
+<div id="header">
+  <div class="hlogo">
+    <svg viewBox="0 0 30 30" fill="none">
+      <g class="arc-outer-h">
+        <circle cx="15" cy="15" r="13" stroke="#00d4ff" stroke-width="0.4" stroke-dasharray="3 3" opacity="0.4"/>
+        <circle cx="15" cy="15" r="13" stroke="#00d4ff" stroke-width="0.9" stroke-dasharray="2 40" opacity="0.9"/>
+      </g>
+      <g class="arc-mid-h">
+        <circle cx="15" cy="15" r="9" stroke="#00d4ff" stroke-width="0.4" stroke-dasharray="2 3" opacity="0.3"/>
+        <circle cx="15" cy="15" r="9" stroke="#00d4ff" stroke-width="1.1" stroke-dasharray="1.5 56" opacity="0.85"/>
+      </g>
+      <g class="arc-pulse-h">
+        <circle cx="15" cy="15" r="5" fill="rgba(0,212,255,0.1)" stroke="#00d4ff" stroke-width="0.7"/>
+        <circle cx="15" cy="15" r="2.5" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="0.4"/>
+        <circle cx="15" cy="15" r="1.3" fill="#00d4ff"/>
+      </g>
+    </svg>
+    <div class="hlogo-text">
+      <div class="hlogo-name">J.A.R.V.I.S</div>
+      <div class="hlogo-sub">Tactical Map System</div>
+    </div>
+  </div>
+
+  <div id="searchWrap">
+    <span class="search-pfx">⌖</span>
+    <input id="searchInp" type="text" placeholder="Locate any place on Earth..."/>
+    <button id="searchBtn" onclick="doSearch()">SCAN</button>
+  </div>
+
+  <div class="hstats">
+    <div class="hstat"><span>STATUS</span><span class="hstat-v ok" id="statusLbl">ONLINE</span></div>
+    <div class="hstat"><span>ZOOM</span><span class="hstat-v" id="zoomLbl">—</span></div>
+    <div class="hstat"><span>TARGET</span><span class="hstat-v" id="targetLbl">NONE</span></div>
+    <button class="back-btn" onclick="window.location='http://localhost:5000'">← JARVIS</button>
+  </div>
+</div>
+
+<!-- Info panel -->
+<div id="infoPanel" class="hidden">
+  <div class="panel-hdr"><span>TARGET ACQUIRED</span><div class="panel-dot"></div></div>
+  <div class="info-row"><div class="info-lbl">Location</div><div class="info-val arc" id="iName">—</div></div>
+  <div class="info-row"><div class="info-lbl">Country</div><div class="info-val" id="iCountry">—</div></div>
+  <div class="info-row"><div class="info-lbl">Coordinates</div><div class="info-val gold" id="iCoords">—</div></div>
+  <div class="info-row"><div class="info-lbl">Type</div><div class="info-val" id="iType">—</div></div>
+  <div class="info-row"><div class="info-lbl">Bounding Box</div><div class="info-val" id="iBbox" style="font-size:0.62rem">—</div></div>
+</div>
+
+<!-- Coordinate display -->
+<div id="coordDisplay">LAT <span id="curLat">—</span> &nbsp; LNG <span id="curLng">—</span></div>
+
+<!-- Zoom controls -->
+<div id="zoomCtrl">
+  <button class="zoom-btn" onclick="map.zoomIn()">+</button>
+  <button class="zoom-btn" onclick="map.zoomOut()">−</button>
+  <button class="zoom-btn" title="Reset view" onclick="resetView()">⌖</button>
+</div>
+
+<!-- Scan bar -->
+<div id="scanBar"><div id="scanBarFill"></div></div>
+
+<!-- Status bar -->
+<div id="statusBar">
+  <div class="left">
+    <span>J.A.R.V.I.S TACTICAL MAP v1.0</span>
+    <span id="statusMsg">AWAITING TARGET</span>
+  </div>
+  <div class="right">
+    <span id="tileStatus">MAP LOADING...</span>
+    <span>OSM / LEAFLET</span>
+  </div>
+</div>
+
+<script>
+// ── Map init ──────────────────────────────────────────────────────────────────
+const map = L.map('map', {
+  center: [20, 0], zoom: 3,
+  zoomControl: false,
+  attributionControl: false
+});
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, minZoom: 2
+}).addTo(map);
+
+let marker = null;
+let defaultCenter = [20, 0];
+let defaultZoom  = 3;
+
+// ── Update zoom label ─────────────────────────────────────────────────────────
+map.on('zoomend', () => {
+  document.getElementById('zoomLbl').textContent = map.getZoom();
+});
+map.on('load', () => {
+  document.getElementById('tileStatus').textContent = 'TILES LOADED';
+});
+map.on('mousemove', e => {
+  document.getElementById('curLat').textContent = e.latlng.lat.toFixed(5);
+  document.getElementById('curLng').textContent = e.latlng.lng.toFixed(5);
+});
+
+// ── Custom marker icon ────────────────────────────────────────────────────────
+function makeIcon() {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="position:relative;width:0;height:0">
+        <div style="
+          position:absolute;width:18px;height:18px;border-radius:50%;
+          background:rgba(0,212,255,0.2);border:1.5px solid #00d4ff;
+          top:-9px;left:-9px;
+          box-shadow:0 0 14px #00d4ff,0 0 30px rgba(0,212,255,0.35);
+          animation:markerPulse 2s ease-in-out infinite;
+        "></div>
+        <div class="ripple" style="animation-delay:0s"></div>
+        <div class="ripple" style="animation-delay:0.7s"></div>
+        <div class="ripple" style="animation-delay:1.4s"></div>
+        <div style="
+          position:absolute;width:4px;height:4px;border-radius:50%;
+          background:#00d4ff;top:-2px;left:-2px;
+          box-shadow:0 0 8px #00d4ff;
+        "></div>
+        <!-- crosshair lines -->
+        <div style="position:absolute;width:26px;height:1px;background:rgba(0,212,255,0.4);top:-0.5px;left:-13px"></div>
+        <div style="position:absolute;width:1px;height:26px;background:rgba(0,212,255,0.4);left:-0.5px;top:-13px"></div>
+      </div>`,
+    iconSize: [0, 0], iconAnchor: [0, 0]
+  });
+}
+
+// ── Scan bar animation ────────────────────────────────────────────────────────
+function scanProgress(pct) {
+  document.getElementById('scanBarFill').style.width = pct + '%';
+}
+
+// ── Geocode and fly ───────────────────────────────────────────────────────────
+async function locatePlace(query) {
+  if (!query.trim()) return;
+  setStatus(`SCANNING FOR: ${query.toUpperCase()}`);
+  scanProgress(20);
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=1`;
+    const resp = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    scanProgress(60);
+    const data = await resp.json();
+    scanProgress(90);
+
+    if (!data || data.length === 0) {
+      setStatus(`TARGET NOT FOUND: ${query.toUpperCase()}`);
+      scanProgress(0);
+      return;
+    }
+
+    const place = data[0];
+    const lat = parseFloat(place.lat);
+    const lon = parseFloat(place.lon);
+    const name = place.display_name.split(',')[0];
+    const country = place.address?.country || '—';
+    const type = place.type || place.class || '—';
+    const bb = place.boundingbox;
+
+    // Fit to bounding box so the whole place is visible at the right zoom
+    if (bb && bb.length === 4) {
+      // bb = [south, north, west, east]
+      const bounds = [[parseFloat(bb[0]), parseFloat(bb[2])], [parseFloat(bb[1]), parseFloat(bb[3])]];
+      map.flyToBounds(bounds, { duration: 1.8, padding: [40, 40], maxZoom: 16 });
+    } else {
+      map.flyTo([lat, lon], getZoomForType(type), { duration: 1.8, easeLinearity: 0.3 });
+    }
+
+    // Place marker
+    if (marker) map.removeLayer(marker);
+    marker = L.marker([lat, lon], { icon: makeIcon() }).addTo(map);
+    marker.bindPopup(`
+      <div style="font-family:Consolas,monospace;font-size:0.72rem;line-height:1.7;color:#cde8f0;min-width:180px">
+        <div style="color:#00d4ff;font-size:0.8rem;margin-bottom:6px">${name}</div>
+        <div style="color:#3d6a7a;font-size:0.58rem;letter-spacing:0.1em">COORDINATES</div>
+        <div style="color:#f5a623">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+      </div>`);
+
+    // Update panel
+    document.getElementById('iName').textContent    = place.display_name.split(',').slice(0,2).join(',');
+    document.getElementById('iCountry').textContent  = country;
+    document.getElementById('iCoords').textContent   = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    document.getElementById('iType').textContent     = type.replace(/_/g,' ');
+    document.getElementById('iBbox').textContent     = bb ? `N${parseFloat(bb[1]).toFixed(2)} S${parseFloat(bb[0]).toFixed(2)} E${parseFloat(bb[3]).toFixed(2)} W${parseFloat(bb[2]).toFixed(2)}` : '—';
+    document.getElementById('targetLbl').textContent = name.toUpperCase().slice(0,12);
+    document.getElementById('infoPanel').classList.remove('hidden');
+
+    setStatus(`TARGET LOCKED: ${name.toUpperCase()}`);
+    scanProgress(100);
+    setTimeout(() => scanProgress(0), 1200);
+
+  } catch (e) {
+    setStatus('SCAN ERROR — CHECK CONNECTION');
+    scanProgress(0);
+  }
+}
+
+function getZoomForType(type) {
+  const z = { country:5, state:7, city:12, town:13, village:14, suburb:14, road:16, building:17, amenity:16 };
+  return z[type] || 11;
+}
+
+function setStatus(msg) {
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+function resetView() {
+  map.flyTo(defaultCenter, defaultZoom, { duration: 1.2 });
+  if (marker) { map.removeLayer(marker); marker = null; }
+  document.getElementById('infoPanel').classList.add('hidden');
+  document.getElementById('targetLbl').textContent = 'NONE';
+  setStatus('AWAITING TARGET');
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function doSearch() {
+  const q = document.getElementById('searchInp').value.trim();
+  if (q) locatePlace(q);
+}
+document.getElementById('searchInp').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// ── On load: check for location from JARVIS ───────────────────────────────────
+async function checkJarvisLocation() {
+  // Retry a few times in case server writes the file just after page load
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const r = await fetch('http://localhost:5000/api/map-location');
+      const d = await r.json();
+      if (d.location && d.location.trim()) {
+        document.getElementById('searchInp').value = d.location;
+        await locatePlace(d.location);
+        // Clear it so reopening map doesn't re-fly to old place
+        await fetch('http://localhost:5000/api/clear-location', { method: 'POST' });
+        return;
+      }
+    } catch { /* server not running — map still works standalone */ }
+    if (attempt < 4) await new Promise(res => setTimeout(res, 400));
+  }
+}
+
+// ── Boot sequence ─────────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  document.getElementById('zoomLbl').textContent = map.getZoom();
+  // Wait for loader animation then hide
+  setTimeout(async () => {
+    document.getElementById('loader').classList.add('done');
+    document.getElementById('tileStatus').textContent = 'TILES ACTIVE';
+    await checkJarvisLocation();
+  }, 1400);
+});
+</script>
+</body>
+</html>
